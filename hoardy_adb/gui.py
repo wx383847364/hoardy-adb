@@ -13,16 +13,19 @@ import threading
 import time
 from typing import Callable
 
-from PySide6.QtCore import Qt, QThread, Signal, QTimer, QSettings, QStandardPaths, QUrl, QSize
+from PySide6.QtCore import Qt, QThread, Signal, QTimer, QSettings, QStandardPaths, QUrl, QSize, QRectF
 from PySide6.QtGui import QColor, QDesktopServices, QIcon, QPixmap, QCloseEvent, QPainter, QFont, QPen
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton,
-    QListWidget, QFrame, QLineEdit, QComboBox, QTableWidget, QTableWidgetItem,
+    QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLabel,
+    QListWidget, QFrame, QLineEdit, QTableWidget, QTableWidgetItem,
     QHeaderView, QAbstractItemView, QFileDialog, QMessageBox, QProgressBar,
     QStyledItemDelegate, QStyleOptionViewItem, QStyle, QCheckBox, QPlainTextEdit,
 )
 
 from hoardy_adb import apk
+from hoardy_adb.ui_controls import (
+    AppButton as QPushButton, AppComboBox as QComboBox, DETAIL_ROLE, NAME_ROLE, motion_duration,
+)
 
 ACTIVE_ROLE = Qt.ItemDataRole.UserRole + 2
 
@@ -61,14 +64,14 @@ QListWidget#nav::item:selected { background: #dceafe; color: #0878f9; font-weigh
 QFrame#summary { background: #f8f9fb; border: 1px solid #e6e9ef; border-radius: 12px; }
 QFrame#summary QWidget { background: transparent; }
 QFrame#device { border: 1px solid #e0e4ea; border-radius: 10px; background: #ffffff; }
-QPushButton { background: #ffffff; border: 1px solid #d8dfe8; border-radius: 7px; padding: 8px 13px; }
+QPushButton { background: #ffffff; border: 1px solid #d8dfe8; border-radius: 10px; padding: 8px 13px; }
 QPushButton:hover { background: #eef5ff; border-color: #a6ccfc; }
 QPushButton:disabled { color: #a1a9b4; background: #f3f5f7; border-color: #e4e7eb; }
 QPushButton#primary { background: #087cff; color: white; border: 0; font-weight: 600; padding: 12px 18px; }
 QPushButton#primary:hover { background: #0068df; }
 QPushButton#primary:disabled { background: #b8d7fc; color: white; }
 QPushButton#secondary { color: #0878f9; border: 1px solid #b4d4ff; padding: 11px; }
-QLineEdit, QComboBox { border: 1px solid #dbe1e8; border-radius: 7px; padding: 9px; background: #ffffff; }
+QLineEdit, QComboBox { border: 1px solid #dbe1e8; border-radius: 10px; padding: 9px; background: #ffffff; }
 QLineEdit:focus { border-color: #1682ff; }
 QComboBox::drop-down { border: 0; width: 25px; }
 QTableWidget { border: 1px solid #e2e7ed; border-radius: 8px; background: white; gridline-color: #e9edf2; outline: none; }
@@ -158,6 +161,26 @@ class SelectedAppDelegate(QStyledItemDelegate):
         adjusted = QStyleOptionViewItem(option)
         checked = index.siblingAtColumn(0).data(Qt.ItemDataRole.CheckStateRole)
         active = bool(index.siblingAtColumn(0).data(ACTIVE_ROLE))
+        if index.column() == 0:
+            # 自绘复选框只替代外观，实际勾选和键盘行为仍由原表格模型负责。
+            painter.save()
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            selected = active or checked == Qt.CheckState.Checked.value
+            hovered = bool(option.state & QStyle.StateFlag.State_MouseOver)
+            painter.fillRect(option.rect, QColor("#e6f1ff" if selected else "#f5f9ff" if hovered else "white"))
+            enabled = bool(index.flags() & Qt.ItemFlag.ItemIsEnabled)
+            box = QRectF(option.rect.center().x()-7, option.rect.center().y()-7, 15, 15)
+            painter.setPen(QPen(QColor("#087cff" if selected and enabled else "#c7d1de"), 1))
+            painter.setBrush(QColor("#087cff" if checked == Qt.CheckState.Checked.value else "white" if enabled else "#f4f6f9"))
+            painter.drawRoundedRect(box, 4, 4)
+            if checked == Qt.CheckState.Checked.value:
+                painter.setPen(QPen(QColor("white"), 1.7, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+                painter.drawLine(int(box.left()+3), int(box.top()+7), int(box.left()+6), int(box.top()+10))
+                painter.drawLine(int(box.left()+6), int(box.top()+10), int(box.left()+12), int(box.top()+4))
+            if active:
+                painter.fillRect(option.rect.left(), option.rect.top(), 4, option.rect.height(), QColor("#087cff"))
+            painter.restore()
+            return
         if active and index.column() == 4:
             # 状态单元格自行绘制蓝色文字，避免主题的选中色覆盖安装状态颜色。
             painter.save()
@@ -176,9 +199,9 @@ class SelectedAppDelegate(QStyledItemDelegate):
             adjusted.state |= QStyle.StateFlag.State_Selected
         else:
             adjusted.state &= ~QStyle.StateFlag.State_Selected
+        if not active and checked != Qt.CheckState.Checked.value and option.state & QStyle.StateFlag.State_MouseOver:
+            painter.fillRect(option.rect, QColor("#f5f9ff"))
         super().paint(painter, adjusted, index)
-        if active and index.column() == 0:
-            painter.fillRect(option.rect.left(), option.rect.top(), 4, option.rect.height(), QColor("#087cff"))
 
 
 class Window(QMainWindow):
@@ -212,7 +235,7 @@ class Window(QMainWindow):
         self.install_started = 0.0
         self.spinner_frame = 0
         self.spinner_timer = QTimer(self)
-        self.spinner_timer.setInterval(80)
+        self.spinner_timer.setInterval(80 if motion_duration() else 1000)
         self.spinner_timer.timeout.connect(self.tick_install_spinner)
         self.job_kind = ""
         self.devices: list[apk.Device] = []
@@ -268,12 +291,15 @@ class Window(QMainWindow):
         side.addWidget(self.nav)
         side.addSpacing(16)
         side.addWidget(label("已连接设备", "muted"))
-        self.source = QComboBox()
-        self.target = QComboBox()
+        self.source = QComboBox(device_mode=True, menu_title="选择旧手机")
+        self.target = QComboBox(device_mode=True, menu_title="选择新手机")
         self.source.setToolTip("选择用于读取和导出应用的旧手机")
         self.target.setToolTip("选择用于安装应用的新手机")
         self.source.currentIndexChanged.connect(self.source_changed)
+        self.target.currentIndexChanged.connect(self.update_device_options)
         self.target.currentIndexChanged.connect(self.update_summary)
+        self.source.refreshRequested.connect(self.refresh_devices)
+        self.target.refreshRequested.connect(self.refresh_devices)
         for title, combo in [("旧手机 · 来源", self.source), ("新手机 · 目标", self.target)]:
             card = QFrame()
             card.setObjectName("device")
@@ -371,12 +397,12 @@ class Window(QMainWindow):
         self.search.setPlaceholderText("搜索应用名称或包名（如：微信 或 com.tencent.mm）")
         self.search.textChanged.connect(self.apply_filter)
         toolbar.addWidget(self.search, 1)
-        self.filter = QComboBox()
+        self.filter = QComboBox(menu_title="筛选应用")
         self.filter.addItems(["全部用户应用", "已选择", "不可用 / 失败"])
         self.filter.currentIndexChanged.connect(self.apply_filter)
         toolbar.addWidget(self.filter)
         left.addLayout(toolbar)
-        self.batch_filter = QComboBox()
+        self.batch_filter = QComboBox(menu_title="选择导出批次")
         self.batch_filter.addItem("全部导出批次", "")
         self.batch_filter.currentIndexChanged.connect(self.change_library_batch)
         self.batch_filter.hide()
@@ -399,6 +425,8 @@ class Window(QMainWindow):
         left.addWidget(self.count)
         self.table = QTableWidget(0, 5)
         self.table.setItemDelegate(SelectedAppDelegate(self.table))
+        self.table.setMouseTracking(True)
+        self.table.cellClicked.connect(self.toggle_app_row)
         self.table.setHorizontalHeaderLabels(["☐", "应用名称", "版本", "安装包大小", "状态"])
         self.table.verticalHeader().hide()
         self.table.setShowGrid(False)
@@ -485,7 +513,7 @@ class Window(QMainWindow):
         details = QVBoxLayout(self.failure_panel)
         details.setContentsMargins(16, 20, 16, 16)
         details.addWidget(label("安装结果详情", "section"))
-        self.failure_filter = QComboBox()
+        self.failure_filter = QComboBox(menu_title="查看安装结果")
         self.failure_filter.addItems(["失败项", "尚未处理"])
         self.failure_filter.currentIndexChanged.connect(self.populate_failure_panel)
         details.addWidget(self.failure_filter)
@@ -653,7 +681,8 @@ class Window(QMainWindow):
         old_target = str(self.target.currentData() or "")
         self.devices = list(devices)
         for device in devices:
-            self.known_devices[device.serial] = device.model
+            if device.model != device.serial or device.serial not in self.known_devices:
+                self.known_devices[device.serial] = device.model
         online = [device for device in devices if device.state == "device"]
         serials = {device.serial for device in online}
         source = old_source or (next((device.serial for device in online if device.serial != self.queue_target), "")
@@ -683,6 +712,7 @@ class Window(QMainWindow):
             if combo.currentIndex() != index:
                 combo.setCurrentIndex(index)
             combo.blockSignals(False)
+        self.update_device_options()
         if online:
             self.roles_initialized = True
         if any(device.state == "unauthorized" for device in devices):
@@ -695,8 +725,35 @@ class Window(QMainWindow):
             self.status.setText("旧手机暂不可用，已保留上次应用清单和选择；重新连接后可继续。")
         self.update_summary()
 
+    def update_device_options(self) -> None:
+        """设备状态与角色只影响菜单可选性；断线的当前项仍保留，防止角色丢失。"""
+        states = {device.serial: device.state for device in self.devices}
+        for combo, other, conflict in [(self.source, self.target, "已作为目标手机"),
+                                       (self.target, self.source, "已作为来源手机")]:
+            for row in range(combo.count()):
+                serial = str(combo.itemData(row) or "")
+                if not serial:
+                    continue
+                state = states.get(serial, "disconnected")
+                detail = {"device": "已连接", "unauthorized": "等待手机授权", "offline": "调试通道离线"}.get(state, "未连接")
+                available = state == "device" and serial != other.currentData()
+                if state == "device" and serial == other.currentData():
+                    detail = conflict
+                combo.setItemData(row, self.known_devices.get(serial, serial), NAME_ROLE)
+                combo.setItemData(row, f"{detail} · {serial}", DETAIL_ROLE)
+                combo.model().item(row).setEnabled(available)
+
+    def toggle_app_row(self, row: int, column: int) -> None:
+        """点击应用资料区也能勾选；复选框列沿用原生切换，避免一次点击反转两次。"""
+        if column == 0:
+            return
+        item = self.table.item(row, 0)
+        if item and item.flags() & Qt.ItemFlag.ItemIsUserCheckable and item.flags() & Qt.ItemFlag.ItemIsEnabled:
+            item.setCheckState(Qt.CheckState.Unchecked if item.checkState() == Qt.CheckState.Checked else Qt.CheckState.Checked)
+
     def source_changed(self) -> None:
         """切换旧手机时清除原设备清单，防止沿用另一台手机的应用路径。"""
+        self.update_device_options()
         if self.worker is not None:
             return
         self.phone_records = []
@@ -1301,7 +1358,7 @@ class Window(QMainWindow):
         """每帧仅更新当前安装状态图标与任务卡，动画不刷新列表或改变排序、滚动。"""
         if self.active_install is None:
             return
-        self.spinner_frame = (self.spinner_frame + 1) % 12
+        self.spinner_frame = (self.spinner_frame + 1) % 12 if motion_duration() else 0
         pixmap = install_spinner(self.spinner_frame)
         self.activity_spinner.setPixmap(pixmap)
         elapsed = max(0, int(time.monotonic() - self.install_started))

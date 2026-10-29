@@ -8,7 +8,9 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 
-from PySide6.QtCore import Qt, QSettings
+from PySide6.QtCore import Qt, QSettings, QPoint
+from PySide6.QtTest import QTest
+from hoardy_adb.ui_controls import AppComboBox, AppButton, DETAIL_ROLE
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from hoardy_adb import apk
@@ -40,7 +42,7 @@ class GuiTests(unittest.TestCase):
         settings.start()
         self.addCleanup(settings.stop)
         self.poll = patch.object(Window, "refresh_devices")
-        self.poll.start()
+        self.poll_mock = self.poll.start()
         self.addCleanup(self.poll.stop)
         self.window = Window()
         self.window.timer.stop()
@@ -656,6 +658,136 @@ class GuiTests(unittest.TestCase):
         begin.assert_not_called()
         self.assertIsNone(self.window.pending_export)
         self.assertIn("无需重复导出", self.window.status.text())
+
+
+    def test_a_menu_keyboard_disabled_and_role_conflict(self) -> None:
+        """菜单方向键跳过待授权、离线和另一角色；回车提交，Escape 不改选择。"""
+        self.window.set_devices([Device("OLD", "红魔", "device"), Device("NEW", "荣耀", "device"),
+                                 Device("AUTH", "待授权手机", "unauthorized")])
+        self.window.show()
+        with patch("hoardy_adb.ui_controls.motion_duration", return_value=0):
+            self.window.target.showPopup()
+            popup = self.window.target.popup
+            self.assertTrue(popup.isVisible())
+            self.assertFalse(self.window.target.model().item(self.window.target.findData("OLD")).isEnabled())
+            self.assertFalse(self.window.target.model().item(self.window.target.findData("AUTH")).isEnabled())
+            QTest.keyClick(popup.list, Qt.Key.Key_Home)
+            QTest.keyClick(popup.list, Qt.Key.Key_Down)
+            self.assertEqual(popup.list.currentIndex().data(Qt.ItemDataRole.UserRole), "NEW")
+            QTest.keyClick(popup.list, Qt.Key.Key_Return)
+            self.assertEqual(self.window.target.currentData(), "NEW")
+            self.assertFalse(popup.isVisible())
+            self.window.target.showPopup()
+            QTest.keyClick(popup.list, Qt.Key.Key_Home)
+            QTest.keyClick(popup.list, Qt.Key.Key_Escape)
+            self.assertEqual(self.window.target.currentData(), "NEW")
+            self.assertFalse(popup.isVisible())
+
+    def test_a_empty_device_menu_refresh_and_mutual_exclusion(self) -> None:
+        """空设备菜单解释原因且可重新检测；打开其他菜单立即收起旧菜单。"""
+        self.window.set_devices([])
+        self.window.show()
+        with patch("hoardy_adb.ui_controls.motion_duration", return_value=0):
+            self.window.source.showPopup()
+            popup = self.window.source.popup
+            self.assertTrue(popup.empty.isVisible())
+            self.assertFalse(popup.list.isVisible())
+            self.assertTrue(popup.refresh.isVisible())
+            self.poll_mock.reset_mock()
+            QTest.mouseClick(popup.refresh, Qt.MouseButton.LeftButton)
+            self.poll_mock.assert_called_once()
+            self.window.filter.showPopup()
+            self.assertFalse(popup.isVisible())
+            self.assertIs(AppComboBox.opened, self.window.filter)
+            QTest.mouseClick(self.window.search, Qt.MouseButton.LeftButton)
+            self.assertFalse(self.window.filter.popup.isVisible())
+
+    def test_a_menu_live_disconnect_preserves_row_and_selection(self) -> None:
+        """展开时后台设备断线只改菜单状态，不重建应用行或清空勾选和角色。"""
+        self.window.set_devices([Device("OLD", "红魔", "device"), Device("NEW", "荣耀", "device")])
+        self.window.select_visible(True)
+        selected = set(self.window.selected["phone"])
+        item = self.window.table.item(0, 1)
+        self.window.show()
+        with patch("hoardy_adb.ui_controls.motion_duration", return_value=0):
+            self.window.target.showPopup()
+            popup = self.window.target.popup
+            self.window.set_devices([Device("OLD", "红魔", "device")])
+            self.assertIs(self.window.target.popup, popup)
+            self.assertTrue(popup.isVisible())
+            row = self.window.target.findData("NEW")
+            self.assertFalse(self.window.target.model().item(row).isEnabled())
+            self.assertIn("未连接", self.window.target.itemData(row, DETAIL_ROLE))
+            popup.choose(self.window.target.model().index(row, 0))
+            self.assertTrue(popup.isVisible())
+            self.assertEqual(self.window.target.currentData(), "NEW")
+            self.assertEqual(self.window.selected["phone"], selected)
+            self.assertIs(self.window.table.item(0, 1), item)
+
+    def test_a_menu_bounds_and_long_batch_names(self) -> None:
+        """常用窗口大小下浮层始终在窗口内，长批次完整换行且无横向滚动。"""
+        combo = self.window.batch_filter
+        long_name = "2026-10-29_16-27-47_export_690023 · 红魔 NX809J · 完整导出记录 · 56 个应用"
+        combo.addItem(long_name, "sample")
+        combo.show()
+        self.window.show()
+        with patch("hoardy_adb.ui_controls.motion_duration", return_value=0):
+            for width, height in [(1120, 800), (1440, 960), (1920, 1080)]:
+                self.window.resize(width, height)
+                self.application.processEvents()
+                combo.showPopup()
+                popup = combo.popup
+                self.assertTrue(self.window.rect().contains(popup.geometry()))
+                self.assertEqual(popup.list.model().index(combo.count()-1, 0).data(), long_name)
+                self.assertGreaterEqual(popup.list.sizeHintForRow(combo.count()-1), 48)
+                self.assertEqual(popup.list.horizontalScrollBarPolicy(), Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+                combo.hidePopup()
+
+    def test_a_buttons_disabled_press_and_reduced_motion(self) -> None:
+        """禁用按钮不发点击；按压仅改变绘制，减少动态效果时立即完成过渡。"""
+        button = AppButton("测试", self.window)
+        button.setGeometry(350, 20, 150, 42)
+        button.show()
+        self.window.show()
+        clicked = Mock()
+        button.clicked.connect(clicked)
+        geometry = button.geometry()
+        with patch("hoardy_adb.ui_controls.motion_duration", return_value=0):
+            QTest.mousePress(button, Qt.MouseButton.LeftButton)
+            self.assertEqual(button._press, 1.0)
+            self.assertEqual(button.geometry(), geometry)
+            QTest.mouseRelease(button, Qt.MouseButton.LeftButton)
+            self.assertEqual(button._press, 0.0)
+            self.assertEqual(clicked.call_count, 1)
+            button.setEnabled(False)
+            QTest.mouseClick(button, Qt.MouseButton.LeftButton)
+            self.assertEqual(clicked.call_count, 1)
+            button.setText("正在安装…")
+            self.assertFalse(button.loading_timer.isActive())
+
+    def test_a_row_click_search_and_clear_keep_original_selection_rules(self) -> None:
+        """资料区域点击可以勾选，搜索不丢选择，清空选择同时取消隐藏项。"""
+        row = self.row_for("com.test.chat")
+        self.window.toggle_app_row(row, 1)
+        self.assertIn("com.test.chat", self.window.selected["phone"])
+        self.window.search.setText("视频")
+        self.window.select_visible(True)
+        self.assertEqual(self.window.selected["phone"], {"com.test.chat", "com.test.video"})
+        self.window.clear_button.click()
+        self.assertEqual(self.window.selected["phone"], set())
+
+    def test_a_disabled_menu_closes_and_tab_restores_focus(self) -> None:
+        """任务启动禁用控件时收起菜单；Tab 离开浮层，不吞后续操作。"""
+        self.window.show()
+        with patch("hoardy_adb.ui_controls.motion_duration", return_value=0):
+            combo = self.window.filter
+            combo.showPopup()
+            QTest.keyClick(combo.popup.list, Qt.Key.Key_Tab)
+            self.assertFalse(combo.popup.isVisible())
+            combo.showPopup()
+            combo.setEnabled(False)
+            self.assertFalse(combo.popup.isVisible())
+            self.assertIsNone(AppComboBox.opened)
 
 
 if __name__ == "__main__":

@@ -103,7 +103,7 @@ CONF["distpath"] = str(Path(CONF["workpath"]) / "collect")
 collection = COLLECT(exe, a.binaries, a.datas, name="AndroidAppMover")
 CONF["distpath"] = str(root / "release")
 app = BUNDLE(collection, name="安卓应用搬家.app", icon=str(icon), bundle_identifier="io.github.wx383847364.hoardy-adb",
-             info_plist={"CFBundleDisplayName": "安卓应用搬家", "CFBundleShortVersionString": "0.3.3",
+             info_plist={"CFBundleDisplayName": "安卓应用搬家", "CFBundleShortVersionString": "0.3.4",
                          "NSHighResolutionCapable": True})
 
 # 打包入口同时更新可下载压缩包，保留应用结构、符号链接和签名资源。
