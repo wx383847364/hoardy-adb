@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDisplayName</key>
+	<string>安卓应用搬家</string>
+	<key>CFBundleExecutable</key>
+	<string>AndroidAppMover</string>
+	<key>CFBundleIconFile</key>
+	<string>AndroidAppMover.icns</string>
+	<key>CFBundleIdentifier</key>
+	<string>io.github.wx383847364.hoardy-adb</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>安卓应用搬家</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.3.2</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+</dict>
+</plist>

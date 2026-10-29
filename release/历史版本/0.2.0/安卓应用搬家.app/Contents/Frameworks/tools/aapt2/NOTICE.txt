@@ -1,0 +1,1 @@
+../../../Resources/tools/aapt2/NOTICE.txt

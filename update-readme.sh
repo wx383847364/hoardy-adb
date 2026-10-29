@@ -1,29 +1,11 @@
 #!/bin/sh -e
-
-echo '$table-of-contents$' > toc.template
-for i in 0 1; do
-{
-    echo "# Table of Contents"
-    echo "<details><summary>(Click me to see it.)</summary>"
-    pandoc --wrap=none --toc --template=toc.template --metadata title=toc -f markdown -t html README.md \
-        | sed '/Table of Contents/ d'
-    echo "</details>"
-    echo
-
-    sed -n "/# What is/,/# Usage/ p" README.md
-    echo
-
-    python3 -m hoardy_adb --help --markdown | sed '
-s/^\(#\+\) /#\1 /
-s/^\(#\+\) \(hoardy-adb[^A-Z[({]*\) [A-Z[({].*/\1 \2/
-'
-
-    echo
-
-    ./test-hyadb.sh --help | sed '
-s/^# usage: \(.*\)$/# Development: `\1`/
-'
-} > README.new
-mv README.new README.md
-done
-pandoc -V pagetitle=README -f markdown -t html README.md > README.html
+# 中文 README 由人工维护，只生成可选预览，禁止自动英文帮助覆盖源文档。
+cd "$(dirname "$0")"
+test -s README.md
+if command -v pandoc >/dev/null 2>&1; then
+    mkdir -p build/docs
+    pandoc -V pagetitle='安卓应用搬家使用说明' -f markdown -t html README.md -o build/docs/README.html
+    printf '%s\n' '中文 README 已保留，HTML 预览位于 build/docs/README.html。'
+else
+    printf '%s\n' '中文 README 已保留；未安装 pandoc，跳过 HTML 预览。'
+fi

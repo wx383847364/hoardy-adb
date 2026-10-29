@@ -1,0 +1,6 @@
+Android App Mover / hoardy-adb: GPL-3.0-or-later. See LICENSE.txt.
+Qt, PySide6 and Shiboken6: GPL-3.0 option; see LICENSE.txt.
+Qt source: https://code.qt.io/cgit/qt/
+PySide/Shiboken source: https://code.qt.io/cgit/pyside/pyside-setup.git/
+Android Debug Bridge: see platform-tools/NOTICE.txt.
+Other runtime dependency licenses are included in this directory.

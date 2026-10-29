@@ -1,92 +1,145 @@
-# Changelog
+# 版本与修改记录
 
-All notable changes to this project are documented in this file.
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+本文件使用中文记录功能、问题修复、验证方式及已知限制。
+桌面版采用独立版本号；命令行工具保留上游的 2.x 版本号，避免混淆两条版本线。
+历史命令行版本条目由上游英文记录翻译，原比较链接保留。
 
-Also, at the bottom of this file there is a [TODO list](#todo) with planned future changes.
+## 桌面版 0.3.3 - 2026-10-29
 
-## [v2.0.1] - 2025-12-03
+### 新增与优化
 
-### Fixed
+- 安装中的应用显示蓝色整行高亮、左侧边条、“正在安装”文字和十二瓣旋转提示。
+- 顶部显示当前应用、安装包大小、已处理数量、单项已用时间，以及主动定位按钮。
+- 右侧清单在安装时显示当前应用，底部按钮显示“正在安装…”，避免与恢复队列操作混淆。
+- 等待中的应用显示“排队等待”，当前处理项不再计入排队数量。
+- 长时间等待时提示检查手机安装确认，不伪造单个应用的安装百分比。
+- 动画只更新当前状态单元格与任务卡，不重建列表或抢占滚动位置；成功、失败或暂停后停止动画。
+- 正式应用与 ZIP 统一输出到项目 `release/`，收集中间文件留在 `build/`；打包完成后自动校验签名并生成 ZIP。
+- README、版本记录和项目维护约定统一使用中文；Git 提交标题和正文也使用中文。
+- 调整文档更新脚本，避免自动生成的英文帮助覆盖中文 README 与版本说明。
 
-- `backup-apks`: Improved support for Android firmwares for which `adb shell pm list packages` fails or does not list all the installed packages by running it with an additional `--user 0` argument.
+### 验证与限制
 
-- `backup`, `backup-apks`: Should work properly on Windows.
+- 79 项自动化测试通过，覆盖 APK 完整性、版本核对、批次选择、队列恢复、设备状态保留、局部刷新、日志与安装动画。
+- 本机 Apple 芯片构建通过签名和压缩包完整性检查。
+- 安装状态预览使用正式控件和示例事件生成，没有额外向手机执行安装。
+- Android 厂商安装确认与调试权限仍由手机系统控制；静默安装和应用私有数据迁移不作保证。
+- 文件夹迁移尚未实现。
 
-## [v2.0.0] - 2025-03-30
+## 桌面版 0.3.2 - 2026-10-29
 
-### Added
+- 增加 Mac USB 只读诊断，区分未连接手机、手机未提供 ADB 调试接口，以及调试接口存在但通道不可用。
+- 将具体诊断原因显示在设备区和不可用操作提示中。
+- 启动日志记录实际共用的 ADB 服务版本、可执行文件来源与 USB 后端，便于排查第三方工具共用服务的问题。
+- 验证 77 项自动化测试；手机端关闭 USB 调试的情况不能由电脑端自动解除。
 
-- Introduced `backup`, `backup-apks`, and `restore-apks` subcommands.
+## 桌面版 0.3.1 - 2026-10-29
 
-  I.e. `hoardy-adb` gained a front-end to the `adb` utility, inspired by [Adebar](https://codeberg.org/izzy/Adebar).
+- 将设备检测拆为独立只读后台任务，不再每次轮询锁定业务控件。
+- 设备状态不变时不重建设备区；断线或检测失败时保留设备角色、应用列表和勾选。
+- 同页列表按稳定标识增删改，保留排序与滚动位置；应用库刷新不再清空有效选择。
+- 分离“刷新当前列表”与“重新检测设备”，所选清单和失败详情无变化时不重建。
+- 增加本地滚动日志、界面异常记录与“打开日志目录”入口，每份 2 MB，最多保留三份旧日志。
+- 启动时先读取已有安装队列识别目标手机，避免把唯一在线的新手机当成旧手机扫描。
 
-### Changed
+## 桌面版 0.3.0 - 2026-10-29
 
-- Reworked most of the internals and switched to using `kisstdlib`.
+- 单项失败记录原因后继续处理后面的应用，断线时保留可恢复队列。
+- 继续未处理项与重试所选失败项分别操作，沿用原清单，保留其他成功与失败结果。
+- 核对原目标设备，拒绝由另一台手机接管旧队列。
+- 失败详情改为默认收起的右侧面板，支持逐项勾选和全选失败项。
+- 顶部显示成功、跳过、失败和未处理数量，主列表显示本次安装结果。
+- 应用库仅保留底部主安装按钮，并明确解释未连接、未选择设备或有任务运行等禁用原因。
 
-  This makes the code much smaller and produces a nicer TTY UI.
+## 桌面版 0.2.3 - 2026-10-29
 
-- Improved documentation.
+- 增加失败与未处理详情，可查看并复制应用名称、包名、中文原因及完整原始错误。
+- 进入应用库后恢复最近安装记录，失败项与尚未执行项分别统计。
+- 补充手机拒绝安装与目标设备断开的中文错误说明。
 
-## [v1.2.0] - 2025-01-22
+## 桌面版 0.2.2 - 2026-10-29
 
-### Changed
+- 修复应用库右侧按钮只重新跳转、看起来无响应的问题。
+- 在应用库中安装当前勾选应用，保留批次与选择，并先弹出目标设备确认。
 
-- Formatted code using `black`.
-- Fixed minor issues found by `pylint`.
-- Improved error handling.
-- Greatly improved documentation.
+## 桌面版 0.2.1 - 2026-10-29
 
-### Added
+- 本地应用库支持全部导出批次与指定单次导出。
+- 全部视图按应用包名去重，优先选择最近的完整副本。
+- 切换批次清空该页选择，避免把不可见的上一次选择一起安装。
 
-- Added `./test-cli.sh` with tests for all commands.
+## 桌面版 0.2.0 - 2026-10-29
 
-## [v1.1.3] - 2024-09-04
+- 增加全选当前结果、清空选择与隐藏已导出，支持部分选中状态。
+- 按包名与版本识别已导出、未导出和版本核对中，重启后从现有清单恢复。
+- 每次从实际导出的 APK 重新读取版本，避免扫描后应用升级造成版本记录错误。
+- 有效旧副本不会被损坏的新副本遮挡；后台核对后同步取消应隐藏项的勾选和待启动请求。
+- 先发布完整清单再补充资料，保留后台更新时的选择与滚动位置。
 
-### Changed
+## 桌面版 0.1.0 - 2026-10-29
 
-- Renamed to `hoardy-adb`.
-- Improved documentation.
+- 新增免费的中文 Mac 桌面界面：手机应用、本地应用库、迁移记录、搜索与批量选择。
+- 支持用户应用 APK 导出、拆分 APK 整组安装、文件校验、逐项结果和失败处理。
+- 来源与目标设备独立选择，默认跳过新手机已有应用，不卸载或覆盖。
+- 复用共享 APK 模块供桌面版与命令行调用，增加测试和独立 Apple 芯片应用打包。
+- 打包 Qt、Python、ADB、可用的 AAPT2 和许可证，支持本地资料缓存与分批读取。
 
-## [v1.1.2] - 2024-05-11
+## 命令行 v2.0.1 - 2025-12-03
 
-### Changed
+### 修复
 
-- Improved documentation.
+- `backup-apks`：包枚举增加 `--user 0`，改善部分 Android 固件命令失败或应用列举不完整的问题。
+- `backup`、`backup-apks`：修复 Windows 兼容性。
 
-## [v1.1.1] - 2024-03-22
+## 命令行 v2.0.0 - 2025-03-30
 
-### Changed
+### 新增
 
-- Improved documentation.
+- 引入 `backup`、`backup-apks` 和 `restore-apks` 子命令，提供受 Adebar 启发的 ADB 备份与恢复前端。
 
-## [v1.1.0] - 2024-03-06
+### 调整
 
-### Added
+- 重写主要内部实现并改用 `kisstdlib`，减少代码量并改善终端界面。
+- 改进文档。
 
-- Implemented output encryption support.
+## 命令行 v1.2.0 - 2025-01-22
 
-### Changed
+- 使用 Black 格式化代码，修复 Pylint 发现的小问题。
+- 改进错误处理并大幅完善文档。
+- 新增命令行测试脚本 `test-cli.sh`。
 
-- Improved documentation.
+## 命令行 v1.1.3 - 2024-09-04
 
-## [v1.0.0] - 2024-02-01
+- 项目更名为 `hoardy-adb`，改进文档。
 
-### Added
+## 命令行 v1.1.2 - 2024-05-11
 
-- Initial public release.
+- 改进文档。
 
-[v2.0.1]: https://github.com/Own-Data-Privateer/hoardy-adb/compare/v2.0.0...v2.0.1
-[v2.0.0]: https://github.com/Own-Data-Privateer/hoardy-adb/compare/v1.2.0...v2.0.0
-[v1.2.0]: https://github.com/Own-Data-Privateer/hoardy-adb/compare/v1.1.3...v1.2.0
-[v1.1.3]: https://github.com/Own-Data-Privateer/hoardy-adb/compare/v1.1.2...v1.1.3
-[v1.1.2]: https://github.com/Own-Data-Privateer/hoardy-adb/compare/v1.1.1...v1.1.2
-[v1.1.1]: https://github.com/Own-Data-Privateer/hoardy-adb/compare/v1.1.0...v1.1.1
-[v1.1.0]: https://github.com/Own-Data-Privateer/hoardy-adb/compare/v1.0.0...v1.1.0
-[v1.0.0]: https://github.com/Own-Data-Privateer/hoardy-adb/releases/tag/v1.0.0
+## 命令行 v1.1.1 - 2024-03-22
 
-# TODO
+- 改进文档。
 
-Currently empty.
+## 命令行 v1.1.0 - 2024-03-06
+
+- 增加输出加密支持，改进文档。
+
+## 命令行 v1.0.0 - 2024-02-01
+
+- 首次公开发布。
+
+## 上游版本链接
+
+- [v2.0.1](https://github.com/Own-Data-Privateer/hoardy-adb/compare/v2.0.0...v2.0.1)
+- [v2.0.0](https://github.com/Own-Data-Privateer/hoardy-adb/compare/v1.2.0...v2.0.0)
+- [v1.2.0](https://github.com/Own-Data-Privateer/hoardy-adb/compare/v1.1.3...v1.2.0)
+- [v1.1.3](https://github.com/Own-Data-Privateer/hoardy-adb/compare/v1.1.2...v1.1.3)
+- [v1.1.2](https://github.com/Own-Data-Privateer/hoardy-adb/compare/v1.1.1...v1.1.2)
+- [v1.1.1](https://github.com/Own-Data-Privateer/hoardy-adb/compare/v1.1.0...v1.1.1)
+- [v1.1.0](https://github.com/Own-Data-Privateer/hoardy-adb/compare/v1.0.0...v1.1.0)
+- [v1.0.0](https://github.com/Own-Data-Privateer/hoardy-adb/releases/tag/v1.0.0)
+
+<a id="todo"></a>
+## 后续计划
+
+- 共享存储文件夹的备份与恢复：保留目录结构，显示传输进度和失败原因，明确同名文件处理方式。尚未实现，不属于当前版本交付能力。

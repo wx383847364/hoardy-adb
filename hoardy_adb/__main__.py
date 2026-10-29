@@ -31,6 +31,9 @@ import time as _time
 import typing as _t
 
 from gettext import gettext
+from pathlib import Path
+
+from hoardy_adb import apk as apk_tools
 
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
@@ -129,136 +132,65 @@ def cmd_backup(cargs: Namespace, lhnd: ANSILogHandler) -> None:
 
 
 def get_pkgs(include_system: bool = False) -> set[str]:
-    """Produce a `set` of all AppIDs."""
-    cmd = ["adb", "shell", "pm", "list", "packages", "--user", "0"]
-    if not include_system:
-        cmd.append("-3")
-
-    with _subp.Popen(cmd, stdout=_subp.PIPE) as p:
-        fd: _io.IOBase = p.stdout  # type: ignore
-        if WINDOWS:
-            fd = DOS2UNIXReader(fd)  # type: ignore
-        out = fd.read().decode("utf-8")
-    if p.returncode != 0:
-        raise CatastrophicFailure("failed `adb shell pm list packages`")
-
-    res = set()
-    for line in out.splitlines():
-        if not line.startswith("package:"):
-            raise CatastrophicFailure("failed `adb shell pm list packages`")
-        res.add(line[8:])
-
-    return res
+    """复用共享设备枚举，保留命令行默认选择设备的原有方式。"""
+    return apk_tools.Adb().packages(include_system)
 
 
 def get_apks(include_system: bool = False) -> dict[str, list[str]]:
-    """Produce a `dict` AppID -> APK paths."""
-    res = {}
-    for pkg in get_pkgs(include_system):
-        with _subp.Popen(["adb", "shell", "pm", "path", pkg], stdout=_subp.PIPE) as p:
-            fd: _io.IOBase = p.stdout  # type: ignore
-            if WINDOWS:
-                fd = DOS2UNIXReader(fd)  # type: ignore
-            out = fd.read().decode("utf-8")
-        if p.returncode != 0:
-            warning("failed `adb shell pm path %s`: installed in work profile only?", pkg)
-            continue
-
-        paths = []
-        for path in out.splitlines():
-            if not path.startswith("package:"):
-                raise CatastrophicFailure("failed `adb shell pm path`")
-            paths.append(path[8:])
-        res[pkg] = paths
-
-    return res
+    """读取全部安装文件，单个应用不可读取时继续处理其他应用。"""
+    adb = apk_tools.Adb()
+    result = {}
+    for package in adb.packages(include_system):
+        try:
+            result[package] = adb.paths(package)
+        except RuntimeError as exc:
+            warning("failed to read APK paths for `%s`: %s", package, exc)
+    return result
 
 
 def cmd_backup_apks(cargs: Namespace, lhnd: ANSILogHandler) -> None:
-    if cargs.prefix is None:
-        prefix = "backup_" + _time.strftime("%Y-%m-%d", _time.localtime())
-    else:
-        prefix = cargs.prefix
-
+    """通过共享 APK 操作导出，保留原命名和既有文件跳过行为。"""
+    prefix = cargs.prefix or "backup_" + _time.strftime("%Y-%m-%d", _time.localtime())
     info(backup_init_msg)
-
-    class Stats:
-        apps = 0
-        apks = 0
-
-    apks = get_apks(cargs.include_system)
-    total = len(apks)
-
-    def pull(name: str, src: str, dst: str) -> None:
-        if _op.exists(dst):
-            warning("skipping existing `%s`", dst)
-            return
-        with _subp.Popen(["adb", "pull", "-a", src, dst], stdout=_subp.DEVNULL) as p:
-            pass
-        if p.returncode != 0:
-            error("failed to `adb pull` an APK for `%s`", name)
-            try:
-                os.unlink(dst)
-            except OSError:
-                pass
-        else:
-            Stats.apks += 1
-
-    for i, (name, paths) in enumerate(apks.items()):
+    apps, files = 0, 0
+    adb = apk_tools.Adb()
+    packages = get_apks(cargs.include_system)
+    for index, (package, paths) in enumerate(packages.items()):
         raise_delayed_signals()
-
-        if len(paths) == 1:
-            dst = f"{prefix}__{name}.apk"
-            info(backup_apk_msg, 100 * i // total, i + 1, total, name, dst)
-            pull(name, paths[0], dst)
-        else:
-            dst_base = f"{prefix}__{name}"
-            os.makedirs(dst_base, exist_ok=True)
-            info(backup_apks_msg, 100 * i // total, i + 1, total, name, dst_base)
-            for j, path in enumerate(paths):
-                dst = _op.join(dst_base, str(j) + "_" + _op.basename(path))
-                pull(name, path, dst)
-        Stats.apps += 1
-
-    info(backup_apks_done_msg, Stats.apks, Stats.apps)
+        info(backup_apk_msg, 100 * index // len(packages), index + 1, len(packages), package, prefix)
+        app = apk_tools.App(package, paths=paths)
+        try:
+            apk_tools.export_one(adb, app, Path(prefix))
+            apps += 1
+            files += len(app.files)
+        except Exception as exc:
+            error("failed to export `%s`: %s", package, exc)
+    info(backup_apks_done_msg, files, apps)
     lhnd.reset()
 
 
 def cmd_restore_apks(cargs: Namespace, lhnd: ANSILogHandler) -> None:
-    pkgs = get_pkgs(True)
-    suffixes = ["__" + p.lower() for p in pkgs]
-    suffixes += [s + ".apk" for s in suffixes]
-
-    class Stats:
-        apps = 0
-        apks = 0
-
-    total = len(cargs.paths)
-    for i, path in enumerate(cargs.paths):
+    """共享完整性检查和成组安装逻辑，默认保留设备上已经存在的应用。"""
+    adb = apk_tools.Adb()
+    installed = adb.packages(True)
+    apps, files = 0, 0
+    for index, name in enumerate(cargs.paths):
         raise_delayed_signals()
-
-        if not cargs.force and any(map(path.lower().endswith, suffixes)):
-            warning("skipping apparently already installed `%s`", path)
-            continue
-
-        info(restore_apk_msg, 100 * i // total, i + 1, total, path)
-
-        if _op.isdir(path):
-            elements: list[str] = list(map(first, iter_subtree(path, include_directories=False)))
-            with _subp.Popen(["adb", "install-multiple"] + elements) as p:
-                pass
-        else:
-            elements = [path]
-            with _subp.Popen(["adb", "install", path]) as p:
-                pass
-
-        if p.returncode != 0:
-            error("failed `adb install` for `%s`", path)
-        else:
-            Stats.apps += 1
-            Stats.apks += len(elements)
-
-    info(restore_apks_done_msg, Stats.apks, Stats.apps)
+        path = Path(name)
+        package = path.name.split("__")[-1].removesuffix(".apk")
+        paths = sorted(path.glob("*.apk")) if path.is_dir() else [path]
+        info(restore_apk_msg, 100 * index // len(cargs.paths), index + 1, len(cargs.paths), name)
+        app = apk_tools.App(package, files=[str(item) for item in paths])
+        try:
+            apk_tools.install_one(adb, app, installed, cargs.force)
+            if app.status == "skipped":
+                warning("skipping apparently already installed `%s`", name)
+            else:
+                apps += 1
+                files += len(paths)
+        except Exception as exc:
+            error("failed to install `%s`: %s", name, exc)
+    info(restore_apks_done_msg, files, apps)
     lhnd.reset()
 
 

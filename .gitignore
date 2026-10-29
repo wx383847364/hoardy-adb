@@ -1,0 +1,23 @@
+# 本地开发环境与构建中间文件
+.venv/
+venv/
+*.egg-info/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+/build/
+/dist/
+.DS_Store
+
+# 运行日志与手机备份不属于发布产物
+*.log
+*.partial
+/AndroidApps/
+/backups/
+/backup_*
+*.ab
+*.adb
+*.passphrase.txt
+
+# release 内正式 .app 与 ZIP 需要提交；不忽略发布目录或原生二进制。
